@@ -158,8 +158,17 @@ function setup_tailscale() {
     fi
 
     log "Authenticating Tailscale with provided authkey..."
-    tailscale up --authkey "$TAILSCALE_AUTH_KEY" --hostname "$TAILSCALE_HOSTNAME" --accept-routes --accept-dns || { log "Tailscale initial authentication failed. Check authkey or network."; exit 1; }
+    run tailscale up --authkey "$TAILSCALE_AUTH_KEY" --hostname "$TAILSCALE_HOSTNAME" --accept-routes --accept-dns || { log "Tailscale initial authentication failed. Check authkey or network."; exit 1; }
     log "Tailscale initial setup completed successfully. Device should appear in your Tailnet."
+}
+
+function run() {
+    "$@"
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        log "Error: $@ failed."
+        return $exit_code
+    fi
 }
 
 
