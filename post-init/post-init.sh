@@ -84,19 +84,19 @@ function install_basic_utils() {
     if command -v apt-get &>/dev/null; then
         log "Detected Debian/Ubuntu (apt-get)."
         apt-get update
-        apt-get install -y curl ca-certificates
+        apt-get install -y curl ca-certificates openssh-server screen vim git
     elif command -v yum &>/dev/null; then
         log "Detected RHEL/CentOS 7 (yum)."
         yum check-update || true
-        yum install -y curl ca-certificates
+        yum install -y curl ca-certificates openssh-server screen vim git
     elif command -v dnf &>/dev/null; then
         log "Detected RHEL/CentOS 8+/Fedora (dnf)."
         dnf check-update || true
-        dnf install -y curl ca-certificates
+        dnf install -y curl ca-certificates openssh-server screen vim git
     elif command -v zypper &>/dev/null; then
         log "Detected OpenSUSE/SLES (zypper)."
         zypper refresh
-        zypper install -y curl ca-certificates
+        zypper install -y curl ca-certificates openssh-server screen vim git
     else
         log "Error: No supported package manager found. Cannot proceed."
         exit 1
