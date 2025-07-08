@@ -5,6 +5,26 @@ A simple helper script collection for server bootstrap automation via curl. Perf
 > ⚠️ **Disclaimer**: This README was mostly written by an LLM (thanks, AI!) and hasn't been thoroughly fact-checked. Proceed with caution and a sense of humor 😄  
 > *Even this disclaimer sentence was written by an LLM - we're going full meta here!*
 
+## TL;DR
+
+```bash
+# 1. Setup environment
+cp post-init/.env-example .env
+# Edit .env with your values
+
+# 2. Generate bootstrap command
+./post-init/generate_bootstrap_command.sh my-server
+
+# 3. Run on new server (copy-paste the output)
+# curl -sSL https://... | sudo bash -s -- --sshkey "..." --tailscale "..." --user "ansible" --ts-hostname "my-server"
+
+# 4. SSH into server
+ssh ansible@my-server.your-tailnet.ts.net
+
+# 5. Use Ansible for further automation
+ansible-playbook -i inventory.yml playbook.yml
+```
+
 ## Overview
 
 `run-sh` provides a semi-automated approach to server initialization. Instead of complex cloud-init configurations, you can bootstrap a server with a single curl command after it's created.
