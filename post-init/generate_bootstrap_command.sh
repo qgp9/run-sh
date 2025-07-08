@@ -12,9 +12,9 @@ source .env
 
 TARGET_HOSTNAME=$1
 
-# --- Generate Tailscale Authkey (Ephemeral with ACL tags) ---
-# Call Tailscale API to issue a one-time (or Ephemeral) authkey.
-# "Ephemeral" keys are automatically deleted when the device disconnects.
+# --- Generate Tailscale Authkey (One-time with ACL tags) ---
+# Call Tailscale API to issue a one-time authkey.
+# "One-time" keys are automatically deleted when the device disconnects.
 # "ACL Tags" can be pre-assigned to restrict initial access permissions.
 # Example: tag:unprovisioned-server (no access anywhere)
 #          tag:ssh-inbound-only (SSH access only from specific IPs/ports)
@@ -61,7 +61,7 @@ echo "      COPY AND PASTE THE FOLLOWING COMMAND ON YOUR NEW SERVER"
 echo "========================================================"
 echo "${FINAL_COMMAND}"
 echo "========================================================"
-echo -e "\nNOTE: This Tailscale authkey is ephemeral and/or single-use. "
+echo -e "\nNOTE: This Tailscale authkey is one-time and/or single-use. "
 echo "After authentication, you should see '${TARGET_HOSTNAME}' in your Tailscale admin console."
 echo "Remember to update your Tailscale ACLs and Ansible inventory for this server."
 
