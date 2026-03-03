@@ -1,201 +1,185 @@
-#!/bin/bash
-# post-init.sh - The universal bootstrapping script
-# setup user, ssh key, tailscale
-# usage: curl ... | bash --sshkey "<SSH_PUBLIC_KEY>" --tailscale "<TAILSCALE_AUTH_KEY>" [--user <USERNAME>] [--ts-hostname <HOSTNAME>]
+#!/usr/bin/env bash
+# post-init.sh - Day-0 bootstrap script
+# Scope: tailscale join + ansible user prep + minimal utilities
+
+set -euo pipefail
 
 SCRIPT_USAGE='Usage: curl ... | bash -s -- --sshkey "<SSH_PUBLIC_KEY>" --tailscale "<TAILSCALE_AUTH_KEY>" [--user <USERNAME>] [--ts-hostname <HOSTNAME>]'
+POST_INIT_FLAG="/var/lib/post_init_setup_done"
+POST_INIT_LOG="/var/log/post-init.log"
+DEFAULT_USERNAME="ansible"
 
-function main() {
-    # --- root check ---
+SSH_PUB_KEY=""
+TAILSCALE_AUTH_KEY=""
+USERNAME="$DEFAULT_USERNAME"
+TAILSCALE_HOSTNAME="$(hostname)"
+
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$POST_INIT_LOG"
+}
+
+usage() {
+    echo "$SCRIPT_USAGE" >&2
+}
+
+fail() {
+    log "Error: $1"
+    usage
+    exit 1
+}
+
+require_root() {
     if [ "$(id -u)" -ne 0 ]; then
-        echo "Error: This script must be run as root."
+        echo "Error: This script must be run as root." >&2
         exit 1
     fi
-    
-    # --- script idempotency ---
-    POST_INIT_FLAG="/var/lib/post_init_setup_done"
+}
+
+require_value() {
+    local option_name="$1"
+    local option_value="${2:-}"
+
+    if [ -z "$option_value" ]; then
+        fail "${option_name} requires a value."
+    fi
+}
+
+parse_args() {
+    while (( "$#" )); do
+        case "$1" in
+            --sshkey)
+                require_value "--sshkey" "${2:-}"
+                SSH_PUB_KEY="$2"
+                shift 2
+                ;;
+            --tailscale)
+                require_value "--tailscale" "${2:-}"
+                TAILSCALE_AUTH_KEY="$2"
+                shift 2
+                ;;
+            --user)
+                require_value "--user" "${2:-}"
+                USERNAME="$2"
+                shift 2
+                ;;
+            --ts-hostname)
+                require_value "--ts-hostname" "${2:-}"
+                TAILSCALE_HOSTNAME="$2"
+                shift 2
+                ;;
+            --)
+                shift
+                break
+                ;;
+            *)
+                fail "Unknown option: $1"
+                ;;
+        esac
+    done
+
+    if [ -z "$SSH_PUB_KEY" ] || [ -z "$TAILSCALE_AUTH_KEY" ]; then
+        fail "Missing required arguments --sshkey and --tailscale."
+    fi
+}
+
+install_basic_utils() {
+    if command -v apt-get >/dev/null 2>&1; then
+        log "Detected Debian/Ubuntu (apt-get)."
+        apt-get update
+        apt-get install -y curl ca-certificates openssh-server git tmux vim
+    elif command -v yum >/dev/null 2>&1; then
+        log "Detected RHEL/CentOS 7 (yum)."
+        yum check-update || true
+        yum install -y curl ca-certificates openssh-server git tmux vim
+    elif command -v dnf >/dev/null 2>&1; then
+        log "Detected RHEL/CentOS 8+/Fedora (dnf)."
+        dnf check-update || true
+        dnf install -y curl ca-certificates openssh-server git tmux vim
+    elif command -v zypper >/dev/null 2>&1; then
+        log "Detected OpenSUSE/SLES (zypper)."
+        zypper refresh
+        zypper install -y curl ca-certificates openssh git tmux vim
+    else
+        fail "No supported package manager found."
+    fi
+}
+
+add_user() {
+    local username="$1"
+
+    if id "$username" >/dev/null 2>&1; then
+        log "User '$username' already exists."
+        return
+    fi
+
+    log "Adding user '$username'."
+    useradd -m -s /bin/bash "$username"
+}
+
+grant_sudo_privileges() {
+    local username="$1"
+    local sudoers_file="/etc/sudoers.d/90-${username}-user"
+
+    if [ -f "$sudoers_file" ]; then
+        log "Sudoers file '$sudoers_file' already exists."
+        return
+    fi
+
+    log "Granting sudo privileges for '$username'."
+    printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$username" > "$sudoers_file"
+    chmod 0440 "$sudoers_file"
+}
+
+deploy_ssh_key() {
+    local username="$1"
+    local ssh_pub_key="$2"
+    local ssh_dir="/home/$username/.ssh"
+    local auth_keys_file="$ssh_dir/authorized_keys"
+
+    log "Deploying SSH public key for '$username'."
+
+    install -d -m 0700 -o "$username" -g "$username" "$ssh_dir"
+    printf '%s\n' "$ssh_pub_key" > "$auth_keys_file"
+    chown "$username:$username" "$auth_keys_file"
+    chmod 0600 "$auth_keys_file"
+}
+
+setup_tailscale() {
+    log "Installing Tailscale if needed."
+
+    if ! command -v tailscale >/dev/null 2>&1; then
+        curl -fsSL https://tailscale.com/install.sh | sh
+    fi
+
+    log "Joining tailnet with provided auth key."
+    if ! tailscale up --authkey "$TAILSCALE_AUTH_KEY" --hostname "$TAILSCALE_HOSTNAME" --accept-routes --accept-dns; then
+        log "Error: tailscale up failed. Check auth key, ACL tags, and network connectivity."
+        exit 1
+    fi
+
+    log "Tailscale setup completed successfully."
+}
+
+main() {
+    require_root
+
     if [ -f "$POST_INIT_FLAG" ]; then
-        log "Post-initialization script already completed. Exiting."
+        log "Post-initialization already completed. Exiting."
         exit 0
     fi
-    log "Starting universal post-initialization script..."
 
     parse_args "$@"
+    log "Starting Day-0 post-initialization."
+
     install_basic_utils
     add_user "$USERNAME"
     grant_sudo_privileges "$USERNAME"
     deploy_ssh_key "$USERNAME" "$SSH_PUB_KEY"
     setup_tailscale
 
-    log "Post-initialization script completed successfully."
-    touch "$POST_INIT_FLAG" # Create main script completion flag
+    mkdir -p "$(dirname "$POST_INIT_FLAG")"
+    touch "$POST_INIT_FLAG"
+    log "Post-initialization completed successfully."
 }
-
-# logging
-log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a /var/log/post-init.log
-}
-
-usage() {
-    log "$SCRIPT_USAGE"
-}
-
-function parse_args() {
-    # --- command line argument parsing ---
-    SSH_PUB_KEY=""
-    TAILSCALE_AUTH_KEY=""
-    USERNAME="ansible" # default value
-    TAILSCALE_HOSTNAME="$(hostname)" # default value
-    
-    while (( "$#" )); do
-      case "$1" in
-        --sshkey)
-          if [ -z "${2:-}" ]; then
-            log "Error: --sshkey requires a value."
-            usage
-            exit 1
-          fi
-          SSH_PUB_KEY="$2"
-          shift 2
-          ;;
-        --tailscale)
-          if [ -z "${2:-}" ]; then
-            log "Error: --tailscale requires a value."
-            usage
-            exit 1
-          fi
-          TAILSCALE_AUTH_KEY="$2"
-          shift 2
-          ;;
-        --user)
-          if [ -z "${2:-}" ]; then
-            log "Error: --user requires a value."
-            usage
-            exit 1
-          fi
-          USERNAME="$2"
-          shift 2
-          ;;
-        --ts-hostname)
-          if [ -z "${2:-}" ]; then
-            log "Error: --ts-hostname requires a value."
-            usage
-            exit 1
-          fi
-          TAILSCALE_HOSTNAME="$2"
-          shift 2
-          ;;
-        --) # End of arguments
-          shift
-          break
-          ;;
-        *) # Unknown option
-          log "Error: Unknown option $1"
-          usage
-          exit 1
-          ;;
-      esac
-    done
-    
-    # argument validation
-    if [ -z "$SSH_PUB_KEY" ] || [ -z "$TAILSCALE_AUTH_KEY" ]; then
-        log "Error: Missing required arguments --sshkey and --tailscale."
-        usage
-        exit 1
-    fi
-}
-
-function install_basic_utils() {
-    # Detect package manager and set commands
-    if command -v apt-get &>/dev/null; then
-        log "Detected Debian/Ubuntu (apt-get)."
-        apt-get update
-        apt-get install -y curl ca-certificates openssh-server screen vim git
-    elif command -v yum &>/dev/null; then
-        log "Detected RHEL/CentOS 7 (yum)."
-        yum check-update || true
-        yum install -y curl ca-certificates openssh-server screen vim git
-    elif command -v dnf &>/dev/null; then
-        log "Detected RHEL/CentOS 8+/Fedora (dnf)."
-        dnf check-update || true
-        dnf install -y curl ca-certificates openssh-server screen vim git
-    elif command -v zypper &>/dev/null; then
-        log "Detected OpenSUSE/SLES (zypper)."
-        zypper refresh
-        zypper install -y curl ca-certificates openssh-server screen vim git
-    else
-        log "Error: No supported package manager found. Cannot proceed."
-        exit 1
-    fi || { log "Package manager installation failed. Cannot proceed."; exit 1; }
-}
-
-
-# --- system basic utils and package manager detection ---
-
-
-function add_user() {
-    local username="$1"
-    if id "$username" &>/dev/null; then
-        log "User '$username' already exists."
-    else
-        log "Adding user '$username'..."
-        useradd -m -s /bin/bash "$username" || { log "Failed to add user."; exit 1; }
-        log "User '$username' created."
-    fi
-}
-
-
-function grant_sudo_privileges() {
-    local username="$1"
-    local sudoers_file="/etc/sudoers.d/90-${username}-user"
-    if [ ! -f "$sudoers_file" ]; then
-        log "Granting sudo privileges for '$username'..."
-        echo "$username ALL=(ALL) NOPASSWD:ALL" | tee "$sudoers_file" || { log "Failed to grant sudo privileges."; exit 1; }
-        chmod 0440 "$sudoers_file" || { log "Failed to set sudoers file permissions."; exit 1; }
-        log "Sudo privileges granted for '$username'."
-    else
-        log "Sudoers file '$sudoers_file' already exists."
-    fi
-}
-
-
-function deploy_ssh_key() {
-    local username="$1"
-    local ssh_pub_key="$2"
-    local ssh_dir="/home/$username/.ssh"
-    local sudo_user="sudo -u $username"
-
-    log "Deploying SSH public key for '$username'..."
-
-    $sudo_user mkdir -p "$ssh_dir" || { log "Failed to create SSH dir for $username."; exit 1; }
-    $sudo_user chmod 700 "$ssh_dir" || { log "Failed to set SSH dir permissions."; exit 1; }
-    
-    # Use overwrite instead of append (tee instead of tee -a)
-    echo "$ssh_pub_key" | $sudo_user tee "$ssh_dir/authorized_keys" > /dev/null || { log "Failed to write SSH key."; exit 1; }
-    $sudo_user chmod 600 "$ssh_dir/authorized_keys" || { log "Failed to set SSH key permissions."; exit 1; }
-    log "SSH public key deployed."
-}
-
-function setup_tailscale() {
-    log "Installing Tailscale..."
-    # Tailscale installation script detects distribution and installs (idempotent)
-    if ! command -v tailscale &>/dev/null; then
-        curl -fsSL https://tailscale.com/install.sh | sh || { log "Failed to download/install Tailscale."; exit 1; }
-    fi
-
-    log "Authenticating Tailscale with provided authkey..."
-    run tailscale up --authkey "$TAILSCALE_AUTH_KEY" --hostname "$TAILSCALE_HOSTNAME" --accept-routes --accept-dns || { log "Tailscale initial authentication failed. Check authkey or network."; exit 1; }
-    log "Tailscale initial setup completed successfully. Device should appear in your Tailnet."
-}
-
-function run() {
-    "$@"
-    local exit_code=$?
-    if [ $exit_code -ne 0 ]; then
-        log "Error: $@ failed."
-        return $exit_code
-    fi
-}
-
 
 main "$@"
