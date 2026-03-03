@@ -3,6 +3,20 @@
 
 Day-0 bootstrap scripts for hosts where `cloud-init` is unavailable or inconvenient.
 
+## TL;DR
+```bash
+cd post-init
+cp .env-example .env
+$EDITOR .env
+./generate_bootstrap_command.sh <target-hostname>
+# run the printed command on the target host as root/sudo
+```
+
+Coverage (Day-0 only):
+- Join tailnet (`tailscale up`)
+- Prepare Ansible admin access (user/sudo/optional SSH key)
+- Install minimal utilities (`curl`, `git`, `tmux`, `vim`, etc.)
+
 ## Scope
 This repository is intentionally limited to Day-0 provisioning:
 - Join a host to tailnet (Tailscale)
@@ -32,6 +46,9 @@ cp .env-example .env
 Required local tools:
 - `curl`
 - `jq`
+
+Required on target host:
+- `curl` (minimum requirement to fetch bootstrap script URL)
 
 Versioning recommendation:
 - Pin `POST_INIT_SH_URL` to a release tag instead of `main`.
