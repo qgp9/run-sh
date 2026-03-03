@@ -2,15 +2,51 @@
 # generate_bootstrap_command.sh - Run on local PC to generate bootstrap command
 set -eu
 
-# --- argument parsing ---
-if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 <TARGET_HOSTNAME>"
+usage() {
+    echo "Usage: $0 [--allow-existing-hostname] <TARGET_HOSTNAME>"
+}
+
+ALLOW_EXISTING_HOSTNAME_CLI="false"
+TARGET_HOSTNAME=""
+
+while (( "$#" )); do
+    case "$1" in
+        --allow-existing-hostname)
+            ALLOW_EXISTING_HOSTNAME_CLI="true"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "Error: Unknown option: $1"
+            usage
+            exit 1
+            ;;
+        *)
+            if [ -n "$TARGET_HOSTNAME" ]; then
+                echo "Error: TARGET_HOSTNAME provided more than once."
+                usage
+                exit 1
+            fi
+            TARGET_HOSTNAME="$1"
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$TARGET_HOSTNAME" ]; then
+    echo "Error: TARGET_HOSTNAME is required."
+    usage
     exit 1
 fi
 
 source .env
-
-TARGET_HOSTNAME=$1
 
 parse_bool() {
     local var_name="$1"
@@ -18,6 +54,34 @@ parse_bool() {
 
     if [ "$var_value" != "true" ] && [ "$var_value" != "false" ]; then
         echo "Error: ${var_name} must be explicitly set to true or false."
+        exit 1
+    fi
+}
+
+check_existing_hostname() {
+    if [ "${ALLOW_EXISTING_HOSTNAME}" = "true" ]; then
+        echo "Hostname collision check skipped (ALLOW_EXISTING_HOSTNAME=true)."
+        return
+    fi
+
+    echo "Checking for existing Tailscale device hostname: ${TARGET_HOSTNAME}"
+    local devices_response
+    devices_response=$(curl -s -X GET "https://api.tailscale.com/api/v2/tailnet/${TAILNET_ID}/devices" \
+      -H "Authorization: Bearer ${TAILSCALE_API_TOKEN}" \
+      -H "Content-Type: application/json")
+
+    if ! echo "${devices_response}" | jq -e . >/dev/null 2>&1; then
+        echo "Error: Failed to parse Tailscale devices API response."
+        echo "API Response: ${devices_response}"
+        exit 1
+    fi
+
+    local existing_count
+    existing_count=$(echo "${devices_response}" | jq -r --arg hostname "${TARGET_HOSTNAME}" '[.devices[]? | select(.hostname == $hostname)] | length')
+
+    if [ "${existing_count}" -gt 0 ]; then
+        echo "Error: A Tailscale device with hostname '${TARGET_HOSTNAME}' already exists."
+        echo "Delete/rename the existing node first, or rerun with --allow-existing-hostname (or ALLOW_EXISTING_HOSTNAME=true)."
         exit 1
     fi
 }
@@ -64,10 +128,15 @@ if [ -z "${TAILSCALE_KEY_TAGS:-}" ]; then
     echo "Error: TAILSCALE_KEY_TAGS must be set in .env."
     exit 1
 fi
+ALLOW_EXISTING_HOSTNAME="${ALLOW_EXISTING_HOSTNAME:-false}"
+if [ "${ALLOW_EXISTING_HOSTNAME_CLI}" = "true" ]; then
+    ALLOW_EXISTING_HOSTNAME="true"
+fi
 
 parse_positive_int "TAILSCALE_KEY_EXPIRY_SECONDS" "${TAILSCALE_KEY_EXPIRY_SECONDS}"
 parse_bool "TAILSCALE_KEY_REUSABLE" "${TAILSCALE_KEY_REUSABLE}"
 parse_bool "TAILSCALE_KEY_PREAUTHORIZED" "${TAILSCALE_KEY_PREAUTHORIZED}"
+parse_bool "ALLOW_EXISTING_HOSTNAME" "${ALLOW_EXISTING_HOSTNAME}"
 
 TAILSCALE_KEY_TAGS_JSON=$(printf '%s' "${TAILSCALE_KEY_TAGS}" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length > 0))')
 if [ "$(echo "${TAILSCALE_KEY_TAGS_JSON}" | jq 'length')" -eq 0 ]; then
@@ -93,6 +162,8 @@ TAILSCALE_KEY_REQUEST_PAYLOAD=$(jq -n \
     },
     expirySeconds: $expiry_seconds
   }')
+
+check_existing_hostname
 
 echo "Generating Tailscale authkey for: $TARGET_HOSTNAME..."
 API_RESPONSE=$(curl -s -X POST "https://api.tailscale.com/api/v2/tailnet/${TAILNET_ID}/keys" \

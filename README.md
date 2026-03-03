@@ -46,6 +46,12 @@ The generator does two things:
 - Creates a Tailscale auth key via API using policy variables from `.env`
 - Builds a bootstrap command with explicit access-mode flags
 
+By default, it also fails fast if the same hostname already exists in tailnet.
+To bypass this guard intentionally:
+```bash
+./generate_bootstrap_command.sh --allow-existing-hostname <target-hostname>
+```
+
 This prints a command similar to:
 ```bash
 curl -sSL <POST_INIT_SH_URL> | sudo bash -s -- \
@@ -106,6 +112,7 @@ Set these in `post-init/.env` for `generate_bootstrap_command.sh`:
 - `TAILSCALE_KEY_REUSABLE` (`true|false`)
 - `TAILSCALE_KEY_PREAUTHORIZED` (`true|false`)
 - `TAILSCALE_KEY_TAGS` (comma-separated tags, e.g. `tag:unprovisioned-server,tag:ssh-inbound-only`)
+- `ALLOW_EXISTING_HOSTNAME` (`true|false`, default recommended: `false`)
 
 ## Day-1 handoff
 After Day-0 finishes and the node appears in tailnet, run your Ansible workflow immediately:
