@@ -3,6 +3,8 @@
 # setup user, ssh key, tailscale
 # usage: curl ... | bash --sshkey "<SSH_PUBLIC_KEY>" --tailscale "<TAILSCALE_AUTH_KEY>" [--user <USERNAME>] [--ts-hostname <HOSTNAME>]
 
+SCRIPT_USAGE='Usage: curl ... | bash -s -- --sshkey "<SSH_PUBLIC_KEY>" --tailscale "<TAILSCALE_AUTH_KEY>" [--user <USERNAME>] [--ts-hostname <HOSTNAME>]'
+
 function main() {
     # --- root check ---
     if [ "$(id -u)" -ne 0 ]; then
@@ -34,6 +36,9 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a /var/log/post-init.log
 }
 
+usage() {
+    log "$SCRIPT_USAGE"
+}
 
 function parse_args() {
     # --- command line argument parsing ---
@@ -45,18 +50,38 @@ function parse_args() {
     while (( "$#" )); do
       case "$1" in
         --sshkey)
+          if [ -z "${2:-}" ]; then
+            log "Error: --sshkey requires a value."
+            usage
+            exit 1
+          fi
           SSH_PUB_KEY="$2"
           shift 2
           ;;
         --tailscale)
+          if [ -z "${2:-}" ]; then
+            log "Error: --tailscale requires a value."
+            usage
+            exit 1
+          fi
           TAILSCALE_AUTH_KEY="$2"
           shift 2
           ;;
         --user)
+          if [ -z "${2:-}" ]; then
+            log "Error: --user requires a value."
+            usage
+            exit 1
+          fi
           USERNAME="$2"
           shift 2
           ;;
         --ts-hostname)
+          if [ -z "${2:-}" ]; then
+            log "Error: --ts-hostname requires a value."
+            usage
+            exit 1
+          fi
           TAILSCALE_HOSTNAME="$2"
           shift 2
           ;;
@@ -66,6 +91,7 @@ function parse_args() {
           ;;
         *) # Unknown option
           log "Error: Unknown option $1"
+          usage
           exit 1
           ;;
       esac
@@ -74,7 +100,7 @@ function parse_args() {
     # argument validation
     if [ -z "$SSH_PUB_KEY" ] || [ -z "$TAILSCALE_AUTH_KEY" ]; then
         log "Error: Missing required arguments --sshkey and --tailscale."
-        log "Usage: curl ... | bash --sshkey \"<SSH_PUBLIC_KEY>\" --tailscale \"<TAILSCALE_AUTH_KEY>\" [--user <USERNAME>] [--ts-hostname <HOSTNAME>]"
+        usage
         exit 1
     fi
 }
