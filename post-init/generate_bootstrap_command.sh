@@ -22,6 +22,14 @@ parse_bool() {
     fi
 }
 
+parse_auth_mode() {
+    local mode_value="${1:-}"
+    if [ "$mode_value" != "arg" ] && [ "$mode_value" != "prompt" ]; then
+        echo "Error: TAILSCALE_AUTH_INPUT_MODE must be set to arg or prompt."
+        exit 1
+    fi
+}
+
 # --- Generate Tailscale Authkey (Ephemeral with ACL tags) ---
 # Call Tailscale API to issue a one-time (or Ephemeral) authkey.
 # "Ephemeral" keys are automatically deleted when the device disconnects.
@@ -55,13 +63,12 @@ if [ -z "$TAILSCALE_AUTH_KEY" ] || [ "$TAILSCALE_AUTH_KEY" == "null" ]; then
     echo "API Response: ${API_RESPONSE}"
     exit 1
 fi
-echo "Tailscale authkey generated successfully (Ephemeral): ${TAILSCALE_AUTH_KEY}"
+echo "Tailscale authkey generated successfully (ephemeral)."
 
 # --- Generate final `curl | bash` command ---
 POST_INIT_URL="${POST_INIT_SH_URL}" # Your post-init.sh URL
 
 FINAL_COMMAND="curl -sSL ${POST_INIT_URL} | sudo bash -s -- "
-FINAL_COMMAND+=" --tailscale \"${TAILSCALE_AUTH_KEY}\" "
 FINAL_COMMAND+=" --user \"${USERNAME}\" "
 FINAL_COMMAND+=" --ts-hostname \"${TARGET_HOSTNAME}\""
 
@@ -73,9 +80,20 @@ if [ -z "${TAILSCALE_SSH:-}" ]; then
     echo "Error: TAILSCALE_SSH must be set in .env."
     exit 1
 fi
+if [ -z "${TAILSCALE_AUTH_INPUT_MODE:-}" ]; then
+    echo "Error: TAILSCALE_AUTH_INPUT_MODE must be set in .env."
+    exit 1
+fi
 
 parse_bool "USE_LEGACY_SSH_KEY" "${USE_LEGACY_SSH_KEY}"
 parse_bool "TAILSCALE_SSH" "${TAILSCALE_SSH}"
+parse_auth_mode "${TAILSCALE_AUTH_INPUT_MODE}"
+
+if [ "${TAILSCALE_AUTH_INPUT_MODE}" = "arg" ]; then
+    FINAL_COMMAND+=" --tailscale \"${TAILSCALE_AUTH_KEY}\" "
+else
+    FINAL_COMMAND+=" --tailscale-prompt "
+fi
 
 if [ "${USE_LEGACY_SSH_KEY}" = "true" ]; then
     if [ -z "${ANSIBLE_SSH_PUB_KEY:-}" ]; then
@@ -106,6 +124,10 @@ echo "========================================================"
 echo -e "\nNOTE: This Tailscale authkey is ephemeral and/or single-use. "
 echo "After authentication, you should see '${TARGET_HOSTNAME}' in your Tailscale admin console."
 echo "Remember to update your Tailscale ACLs and Ansible inventory for this server."
+if [ "${TAILSCALE_AUTH_INPUT_MODE}" = "prompt" ]; then
+    echo "Prompt mode selected: paste the generated Tailscale auth key when prompted on the target host."
+    echo "Generated key: ${TAILSCALE_AUTH_KEY}"
+fi
 
 # Copy command to clipboard if pbcopy is available
 if command -v pbcopy &>/dev/null; then

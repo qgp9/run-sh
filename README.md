@@ -45,7 +45,7 @@ Versioning recommendation:
 This prints a command similar to:
 ```bash
 curl -sSL <POST_INIT_SH_URL> | sudo bash -s -- \
-  --tailscale "<TAILSCALE_AUTH_KEY>" \
+  --tailscale-prompt \
   --user "ansible" \
   --ts-hostname "<target-hostname>" \
   --sshkey "<SSH_PUBLIC_KEY>" \
@@ -57,7 +57,10 @@ Execute the generated command on the target host as root (or with `sudo`).
 
 ## `post-init.sh` interface
 Required arguments:
-- `--tailscale "<TAILSCALE_AUTH_KEY>"`
+- One explicit Tailscale auth input mode:
+  - `--tailscale "<TAILSCALE_AUTH_KEY>"`, or
+  - `--tailscale-stdin`, or
+  - `--tailscale-prompt`
 - One explicit SSH key mode:
   - `--sshkey "<SSH_PUBLIC_KEY>"`, or
   - `--skip-ssh-key`
@@ -71,12 +74,15 @@ Optional arguments:
 
 ## Access mode choices
 - Tailscale SSH only:
+  - `--tailscale-prompt` (or another explicit auth input mode)
   - `--skip-ssh-key`
   - `--enable-tailscale-ssh`
 - Legacy SSH key + Tailscale SSH:
+  - `--tailscale-prompt` (or another explicit auth input mode)
   - `--sshkey "<SSH_PUBLIC_KEY>"`
   - `--enable-tailscale-ssh`
 - Legacy SSH key only:
+  - `--tailscale-prompt` (or another explicit auth input mode)
   - `--sshkey "<SSH_PUBLIC_KEY>"`
   - `--disable-tailscale-ssh`
 
@@ -85,9 +91,8 @@ Optional arguments:
 - If the marker exists, the script exits without re-running Day-0 steps.
 
 ## Security notes
-- The bootstrap command includes secrets in CLI arguments.
-  - Avoid shell history persistence for this command when possible.
-  - Use short-lived Tailscale auth keys.
+- Prefer `--tailscale-prompt` to avoid exposing the auth key in shell history and process args.
+- If you use `--tailscale "<key>"`, avoid shell history persistence and use short-lived keys.
 - The script grants `NOPASSWD:ALL` to the bootstrap user for operational convenience.
   - Tighten this in Ansible for production environments.
 

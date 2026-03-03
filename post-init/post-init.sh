@@ -4,18 +4,20 @@
 
 set -Eeuo pipefail
 
-SCRIPT_USAGE='Usage: curl ... | bash -s -- --tailscale "<TAILSCALE_AUTH_KEY>" (--sshkey "<SSH_PUBLIC_KEY>" | --skip-ssh-key) [--user <USERNAME>] [--ts-hostname <HOSTNAME>] (--enable-tailscale-ssh | --disable-tailscale-ssh)'
+SCRIPT_USAGE='Usage: curl ... | bash -s -- (--tailscale "<TAILSCALE_AUTH_KEY>" | --tailscale-stdin | --tailscale-prompt) (--sshkey "<SSH_PUBLIC_KEY>" | --skip-ssh-key) [--user <USERNAME>] [--ts-hostname <HOSTNAME>] (--enable-tailscale-ssh | --disable-tailscale-ssh)'
 POST_INIT_FLAG="/var/lib/post_init_setup_done"
 POST_INIT_LOG="/var/log/post-init.log"
 DEFAULT_USERNAME="ansible"
 
 SSH_PUB_KEY=""
 TAILSCALE_AUTH_KEY=""
+TAILSCALE_AUTH_MODE=""
 USERNAME="$DEFAULT_USERNAME"
 TAILSCALE_HOSTNAME="$(hostname)"
 TAILSCALE_SSH_ENABLED=""
 SSH_KEY_MODE_SET="false"
 TAILSCALE_SSH_MODE_SET="false"
+TAILSCALE_AUTH_MODE_SET="false"
 CURRENT_STEP="init"
 
 log() {
@@ -84,8 +86,29 @@ parse_args() {
                 ;;
             --tailscale)
                 require_value "--tailscale" "${2:-}"
+                if [ "$TAILSCALE_AUTH_MODE_SET" = "true" ]; then
+                    fail "Choose only one Tailscale auth mode: --tailscale, --tailscale-stdin, or --tailscale-prompt."
+                fi
                 TAILSCALE_AUTH_KEY="$2"
+                TAILSCALE_AUTH_MODE="arg"
+                TAILSCALE_AUTH_MODE_SET="true"
                 shift 2
+                ;;
+            --tailscale-stdin)
+                if [ "$TAILSCALE_AUTH_MODE_SET" = "true" ]; then
+                    fail "Choose only one Tailscale auth mode: --tailscale, --tailscale-stdin, or --tailscale-prompt."
+                fi
+                TAILSCALE_AUTH_MODE="stdin"
+                TAILSCALE_AUTH_MODE_SET="true"
+                shift
+                ;;
+            --tailscale-prompt)
+                if [ "$TAILSCALE_AUTH_MODE_SET" = "true" ]; then
+                    fail "Choose only one Tailscale auth mode: --tailscale, --tailscale-stdin, or --tailscale-prompt."
+                fi
+                TAILSCALE_AUTH_MODE="prompt"
+                TAILSCALE_AUTH_MODE_SET="true"
+                shift
                 ;;
             --user)
                 require_value "--user" "${2:-}"
@@ -123,8 +146,8 @@ parse_args() {
         esac
     done
 
-    if [ -z "$TAILSCALE_AUTH_KEY" ]; then
-        fail "Missing required argument --tailscale."
+    if [ "$TAILSCALE_AUTH_MODE_SET" = "false" ]; then
+        fail "Missing Tailscale auth mode: choose --tailscale, --tailscale-stdin, or --tailscale-prompt."
     fi
 
     if [ "$SSH_KEY_MODE_SET" = "false" ]; then
@@ -138,6 +161,37 @@ parse_args() {
     if [ "$TAILSCALE_SSH_ENABLED" = "false" ] && [ -z "$SSH_PUB_KEY" ]; then
         fail "At least one access path is required: use --sshkey or enable Tailscale SSH."
     fi
+}
+
+load_tailscale_auth_key() {
+    case "$TAILSCALE_AUTH_MODE" in
+        arg)
+            if [ -z "$TAILSCALE_AUTH_KEY" ]; then
+                fail "--tailscale requires a non-empty auth key."
+            fi
+            ;;
+        stdin)
+            if ! IFS= read -r TAILSCALE_AUTH_KEY; then
+                fail "Failed to read Tailscale auth key from stdin."
+            fi
+            if [ -z "$TAILSCALE_AUTH_KEY" ]; then
+                fail "Tailscale auth key from stdin is empty."
+            fi
+            ;;
+        prompt)
+            if [ ! -r /dev/tty ]; then
+                fail "--tailscale-prompt requires an interactive terminal."
+            fi
+            read -r -s -p "Enter Tailscale auth key: " TAILSCALE_AUTH_KEY < /dev/tty
+            echo "" > /dev/tty
+            if [ -z "$TAILSCALE_AUTH_KEY" ]; then
+                fail "Tailscale auth key from prompt is empty."
+            fi
+            ;;
+        *)
+            fail "Invalid Tailscale auth mode."
+            ;;
+    esac
 }
 
 install_basic_utils() {
@@ -236,6 +290,7 @@ main() {
 
     parse_args "$@"
     log "Starting Day-0 post-initialization."
+    run_step "load_tailscale_auth_key" load_tailscale_auth_key
 
     run_step "install_basic_utils" install_basic_utils
     run_step "add_user" add_user "$USERNAME"
