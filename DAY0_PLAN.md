@@ -22,7 +22,7 @@
 1. [x] 범위/인터페이스 고정
 2. [x] `post-init.sh` 안정성/보안/멱등성 개선
 3. [x] `README.md` Day-0 기준 재작성
-4. [ ] `.env-example` Day-0 기준 정리
+4. [x] `.env-example` Day-0 기준 정리
 5. [ ] 검증(정적 점검 + 시나리오 점검)
 
 ## 세부 작업
