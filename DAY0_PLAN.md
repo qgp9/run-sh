@@ -23,7 +23,7 @@
 2. [x] `post-init.sh` 안정성/보안/멱등성 개선
 3. [x] `README.md` Day-0 기준 재작성
 4. [x] `.env-example` Day-0 기준 정리
-5. [ ] 검증(정적 점검 + 시나리오 점검)
+5. [x] 검증(정적 점검 + 시나리오 점검)
 
 ## 세부 작업
 ### 1) 범위/인터페이스 고정
@@ -73,6 +73,13 @@
   - 필수 인자 누락 실패
 - 완료기준:
   - 각 시나리오 예상 결과 문서화
+
+### Verification result
+- `bash -n post-init/post-init.sh`: pass
+- `bash -n post-init/generate_bootstrap_command.sh`: pass
+- `shellcheck`: not available in current environment
+- Non-root execution check:
+  - `post-init.sh --sshkey dummy --tailscale dummy ...` exits with root-required error as expected
 
 ## 운영 원칙
 - Day-0는 최소 기능만 유지한다.
