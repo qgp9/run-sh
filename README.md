@@ -1,4 +1,5 @@
 # run-sh
+![Built with Codex](https://img.shields.io/badge/Built%20with-Codex-0A7CFF)
 
 Day-0 bootstrap scripts for hosts where `cloud-init` is unavailable or inconvenient.
 
