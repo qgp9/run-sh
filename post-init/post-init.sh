@@ -2,7 +2,7 @@
 # post-init.sh - Day-0 bootstrap script
 # Scope: tailscale join + ansible user prep + minimal utilities
 
-set -euo pipefail
+set -Eeuo pipefail
 
 SCRIPT_USAGE='Usage: curl ... | bash -s -- --sshkey "<SSH_PUBLIC_KEY>" --tailscale "<TAILSCALE_AUTH_KEY>" [--user <USERNAME>] [--ts-hostname <HOSTNAME>]'
 POST_INIT_FLAG="/var/lib/post_init_setup_done"
@@ -13,6 +13,7 @@ SSH_PUB_KEY=""
 TAILSCALE_AUTH_KEY=""
 USERNAME="$DEFAULT_USERNAME"
 TAILSCALE_HOSTNAME="$(hostname)"
+CURRENT_STEP="init"
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$POST_INIT_LOG"
@@ -26,6 +27,21 @@ fail() {
     log "Error: $1"
     usage
     exit 1
+}
+
+on_error() {
+    local line_no="$1"
+    log "STEP ${CURRENT_STEP} fail (line=${line_no})"
+}
+
+run_step() {
+    local step_name="$1"
+    shift
+
+    CURRENT_STEP="$step_name"
+    log "STEP ${CURRENT_STEP} start"
+    "$@"
+    log "STEP ${CURRENT_STEP} ok"
 }
 
 require_root() {
@@ -161,6 +177,8 @@ setup_tailscale() {
 }
 
 main() {
+    trap 'on_error $LINENO' ERR
+
     require_root
 
     if [ -f "$POST_INIT_FLAG" ]; then
@@ -171,11 +189,11 @@ main() {
     parse_args "$@"
     log "Starting Day-0 post-initialization."
 
-    install_basic_utils
-    add_user "$USERNAME"
-    grant_sudo_privileges "$USERNAME"
-    deploy_ssh_key "$USERNAME" "$SSH_PUB_KEY"
-    setup_tailscale
+    run_step "install_basic_utils" install_basic_utils
+    run_step "add_user" add_user "$USERNAME"
+    run_step "grant_sudo_privileges" grant_sudo_privileges "$USERNAME"
+    run_step "deploy_ssh_key" deploy_ssh_key "$USERNAME" "$SSH_PUB_KEY"
+    run_step "setup_tailscale" setup_tailscale
 
     mkdir -p "$(dirname "$POST_INIT_FLAG")"
     touch "$POST_INIT_FLAG"
