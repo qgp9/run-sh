@@ -45,10 +45,10 @@ Versioning recommendation:
 This prints a command similar to:
 ```bash
 curl -sSL <POST_INIT_SH_URL> | sudo bash -s -- \
-  --sshkey "<SSH_PUBLIC_KEY>" \
   --tailscale "<TAILSCALE_AUTH_KEY>" \
   --user "ansible" \
-  --ts-hostname "<target-hostname>"
+  --ts-hostname "<target-hostname>" \
+  --sshkey "<SSH_PUBLIC_KEY>"
 ```
 
 ### 3) Run on the target host
@@ -56,12 +56,24 @@ Execute the generated command on the target host as root (or with `sudo`).
 
 ## `post-init.sh` interface
 Required arguments:
-- `--sshkey "<SSH_PUBLIC_KEY>"`
 - `--tailscale "<TAILSCALE_AUTH_KEY>"`
 
 Optional arguments:
+- `--sshkey "<SSH_PUBLIC_KEY>"` (legacy SSH key mode)
 - `--user "<USERNAME>"` (default: `ansible`)
 - `--ts-hostname "<HOSTNAME>"` (default: host's current hostname)
+- `--disable-tailscale-ssh` (disable Tailscale SSH)
+
+## Access mode choices
+- Tailscale SSH only:
+  - Omit `--sshkey`
+  - Do not pass `--disable-tailscale-ssh`
+- Legacy SSH key + Tailscale SSH:
+  - Pass `--sshkey`
+  - Do not pass `--disable-tailscale-ssh`
+- Legacy SSH key only:
+  - Pass `--sshkey`
+  - Pass `--disable-tailscale-ssh`
 
 ## Idempotency behavior
 - A completion marker is written to `/var/lib/post_init_setup_done` only after full success.

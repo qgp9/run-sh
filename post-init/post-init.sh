@@ -4,7 +4,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_USAGE='Usage: curl ... | bash -s -- --sshkey "<SSH_PUBLIC_KEY>" --tailscale "<TAILSCALE_AUTH_KEY>" [--user <USERNAME>] [--ts-hostname <HOSTNAME>]'
+SCRIPT_USAGE='Usage: curl ... | bash -s -- --tailscale "<TAILSCALE_AUTH_KEY>" [--sshkey "<SSH_PUBLIC_KEY>"] [--user <USERNAME>] [--ts-hostname <HOSTNAME>] [--disable-tailscale-ssh]'
 POST_INIT_FLAG="/var/lib/post_init_setup_done"
 POST_INIT_LOG="/var/log/post-init.log"
 DEFAULT_USERNAME="ansible"
@@ -13,6 +13,7 @@ SSH_PUB_KEY=""
 TAILSCALE_AUTH_KEY=""
 USERNAME="$DEFAULT_USERNAME"
 TAILSCALE_HOSTNAME="$(hostname)"
+TAILSCALE_SSH_ENABLED="true"
 CURRENT_STEP="init"
 
 log() {
@@ -83,6 +84,10 @@ parse_args() {
                 TAILSCALE_HOSTNAME="$2"
                 shift 2
                 ;;
+            --disable-tailscale-ssh)
+                TAILSCALE_SSH_ENABLED="false"
+                shift
+                ;;
             --)
                 shift
                 break
@@ -93,8 +98,12 @@ parse_args() {
         esac
     done
 
-    if [ -z "$SSH_PUB_KEY" ] || [ -z "$TAILSCALE_AUTH_KEY" ]; then
-        fail "Missing required arguments --sshkey and --tailscale."
+    if [ -z "$TAILSCALE_AUTH_KEY" ]; then
+        fail "Missing required argument --tailscale."
+    fi
+
+    if [ "$TAILSCALE_SSH_ENABLED" = "false" ] && [ -z "$SSH_PUB_KEY" ]; then
+        fail "At least one access path is required: provide --sshkey or keep Tailscale SSH enabled."
     fi
 }
 
@@ -161,14 +170,20 @@ deploy_ssh_key() {
 }
 
 setup_tailscale() {
+    local ssh_flag="--ssh=true"
+
     log "Installing Tailscale if needed."
 
     if ! command -v tailscale >/dev/null 2>&1; then
         curl -fsSL https://tailscale.com/install.sh | sh
     fi
 
+    if [ "$TAILSCALE_SSH_ENABLED" = "false" ]; then
+        ssh_flag="--ssh=false"
+    fi
+
     log "Joining tailnet with provided auth key."
-    if ! tailscale up --authkey "$TAILSCALE_AUTH_KEY" --hostname "$TAILSCALE_HOSTNAME" --accept-routes --accept-dns; then
+    if ! tailscale up --authkey "$TAILSCALE_AUTH_KEY" --hostname "$TAILSCALE_HOSTNAME" --accept-routes --accept-dns "$ssh_flag"; then
         log "Error: tailscale up failed. Check auth key, ACL tags, and network connectivity."
         exit 1
     fi
@@ -192,7 +207,11 @@ main() {
     run_step "install_basic_utils" install_basic_utils
     run_step "add_user" add_user "$USERNAME"
     run_step "grant_sudo_privileges" grant_sudo_privileges "$USERNAME"
-    run_step "deploy_ssh_key" deploy_ssh_key "$USERNAME" "$SSH_PUB_KEY"
+    if [ -n "$SSH_PUB_KEY" ]; then
+        run_step "deploy_ssh_key" deploy_ssh_key "$USERNAME" "$SSH_PUB_KEY"
+    else
+        log "STEP deploy_ssh_key skip (no --sshkey provided)"
+    fi
     run_step "setup_tailscale" setup_tailscale
 
     mkdir -p "$(dirname "$POST_INIT_FLAG")"

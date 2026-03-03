@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # generate_bootstrap_command.sh - Run on local PC to generate bootstrap command
 set -u
 
@@ -51,10 +51,24 @@ echo "Tailscale authkey generated successfully (Ephemeral): ${TAILSCALE_AUTH_KEY
 POST_INIT_URL="${POST_INIT_SH_URL}" # Your post-init.sh URL
 
 FINAL_COMMAND="curl -sSL ${POST_INIT_URL} | sudo bash -s -- "
-FINAL_COMMAND+=" --sshkey \"${ANSIBLE_SSH_PUB_KEY}\" "
 FINAL_COMMAND+=" --tailscale \"${TAILSCALE_AUTH_KEY}\" "
 FINAL_COMMAND+=" --user \"${USERNAME}\" "
 FINAL_COMMAND+=" --ts-hostname \"${TARGET_HOSTNAME}\""
+
+USE_LEGACY_SSH_KEY="${USE_LEGACY_SSH_KEY:-true}"
+TAILSCALE_SSH="${TAILSCALE_SSH:-true}"
+
+if [ "${USE_LEGACY_SSH_KEY}" = "true" ]; then
+    if [ -z "${ANSIBLE_SSH_PUB_KEY:-}" ]; then
+        echo "Error: USE_LEGACY_SSH_KEY is true but ANSIBLE_SSH_PUB_KEY is empty."
+        exit 1
+    fi
+    FINAL_COMMAND+=" --sshkey \"${ANSIBLE_SSH_PUB_KEY}\""
+fi
+
+if [ "${TAILSCALE_SSH}" = "false" ]; then
+    FINAL_COMMAND+=" --disable-tailscale-ssh"
+fi
 
 echo -e "\n\n========================================================"
 echo "      COPY AND PASTE THE FOLLOWING COMMAND ON YOUR NEW SERVER"
