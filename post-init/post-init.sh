@@ -4,7 +4,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_USAGE='Usage: curl ... | bash -s -- --tailscale "<TAILSCALE_AUTH_KEY>" [--sshkey "<SSH_PUBLIC_KEY>"] [--user <USERNAME>] [--ts-hostname <HOSTNAME>] [--disable-tailscale-ssh]'
+SCRIPT_USAGE='Usage: curl ... | bash -s -- --tailscale "<TAILSCALE_AUTH_KEY>" (--sshkey "<SSH_PUBLIC_KEY>" | --skip-ssh-key) [--user <USERNAME>] [--ts-hostname <HOSTNAME>] (--enable-tailscale-ssh | --disable-tailscale-ssh)'
 POST_INIT_FLAG="/var/lib/post_init_setup_done"
 POST_INIT_LOG="/var/log/post-init.log"
 DEFAULT_USERNAME="ansible"
@@ -13,7 +13,9 @@ SSH_PUB_KEY=""
 TAILSCALE_AUTH_KEY=""
 USERNAME="$DEFAULT_USERNAME"
 TAILSCALE_HOSTNAME="$(hostname)"
-TAILSCALE_SSH_ENABLED="true"
+TAILSCALE_SSH_ENABLED=""
+SSH_KEY_MODE_SET="false"
+TAILSCALE_SSH_MODE_SET="false"
 CURRENT_STEP="init"
 
 log() {
@@ -66,8 +68,19 @@ parse_args() {
         case "$1" in
             --sshkey)
                 require_value "--sshkey" "${2:-}"
+                if [ "$SSH_KEY_MODE_SET" = "true" ]; then
+                    fail "Choose only one SSH key mode: --sshkey or --skip-ssh-key."
+                fi
                 SSH_PUB_KEY="$2"
+                SSH_KEY_MODE_SET="true"
                 shift 2
+                ;;
+            --skip-ssh-key)
+                if [ "$SSH_KEY_MODE_SET" = "true" ]; then
+                    fail "Choose only one SSH key mode: --sshkey or --skip-ssh-key."
+                fi
+                SSH_KEY_MODE_SET="true"
+                shift
                 ;;
             --tailscale)
                 require_value "--tailscale" "${2:-}"
@@ -84,8 +97,20 @@ parse_args() {
                 TAILSCALE_HOSTNAME="$2"
                 shift 2
                 ;;
+            --enable-tailscale-ssh)
+                if [ "$TAILSCALE_SSH_MODE_SET" = "true" ]; then
+                    fail "Choose only one Tailscale SSH mode: --enable-tailscale-ssh or --disable-tailscale-ssh."
+                fi
+                TAILSCALE_SSH_ENABLED="true"
+                TAILSCALE_SSH_MODE_SET="true"
+                shift
+                ;;
             --disable-tailscale-ssh)
+                if [ "$TAILSCALE_SSH_MODE_SET" = "true" ]; then
+                    fail "Choose only one Tailscale SSH mode: --enable-tailscale-ssh or --disable-tailscale-ssh."
+                fi
                 TAILSCALE_SSH_ENABLED="false"
+                TAILSCALE_SSH_MODE_SET="true"
                 shift
                 ;;
             --)
@@ -102,8 +127,16 @@ parse_args() {
         fail "Missing required argument --tailscale."
     fi
 
+    if [ "$SSH_KEY_MODE_SET" = "false" ]; then
+        fail "Missing SSH key mode: choose --sshkey or --skip-ssh-key."
+    fi
+
+    if [ "$TAILSCALE_SSH_MODE_SET" = "false" ]; then
+        fail "Missing Tailscale SSH mode: choose --enable-tailscale-ssh or --disable-tailscale-ssh."
+    fi
+
     if [ "$TAILSCALE_SSH_ENABLED" = "false" ] && [ -z "$SSH_PUB_KEY" ]; then
-        fail "At least one access path is required: provide --sshkey or keep Tailscale SSH enabled."
+        fail "At least one access path is required: use --sshkey or enable Tailscale SSH."
     fi
 }
 

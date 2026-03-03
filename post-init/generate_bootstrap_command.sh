@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # generate_bootstrap_command.sh - Run on local PC to generate bootstrap command
-set -u
+set -eu
 
 # --- argument parsing ---
 if [ "$#" -ne 1 ]; then
@@ -11,6 +11,16 @@ fi
 source .env
 
 TARGET_HOSTNAME=$1
+
+parse_bool() {
+    local var_name="$1"
+    local var_value="${2:-}"
+
+    if [ "$var_value" != "true" ] && [ "$var_value" != "false" ]; then
+        echo "Error: ${var_name} must be explicitly set to true or false."
+        exit 1
+    fi
+}
 
 # --- Generate Tailscale Authkey (Ephemeral with ACL tags) ---
 # Call Tailscale API to issue a one-time (or Ephemeral) authkey.
@@ -55,19 +65,37 @@ FINAL_COMMAND+=" --tailscale \"${TAILSCALE_AUTH_KEY}\" "
 FINAL_COMMAND+=" --user \"${USERNAME}\" "
 FINAL_COMMAND+=" --ts-hostname \"${TARGET_HOSTNAME}\""
 
-USE_LEGACY_SSH_KEY="${USE_LEGACY_SSH_KEY:-true}"
-TAILSCALE_SSH="${TAILSCALE_SSH:-true}"
+if [ -z "${USE_LEGACY_SSH_KEY:-}" ]; then
+    echo "Error: USE_LEGACY_SSH_KEY must be set in .env."
+    exit 1
+fi
+if [ -z "${TAILSCALE_SSH:-}" ]; then
+    echo "Error: TAILSCALE_SSH must be set in .env."
+    exit 1
+fi
+
+parse_bool "USE_LEGACY_SSH_KEY" "${USE_LEGACY_SSH_KEY}"
+parse_bool "TAILSCALE_SSH" "${TAILSCALE_SSH}"
 
 if [ "${USE_LEGACY_SSH_KEY}" = "true" ]; then
     if [ -z "${ANSIBLE_SSH_PUB_KEY:-}" ]; then
         echo "Error: USE_LEGACY_SSH_KEY is true but ANSIBLE_SSH_PUB_KEY is empty."
         exit 1
     fi
-    FINAL_COMMAND+=" --sshkey \"${ANSIBLE_SSH_PUB_KEY}\""
+    FINAL_COMMAND+=" --sshkey \"${ANSIBLE_SSH_PUB_KEY}\" "
+else
+    FINAL_COMMAND+=" --skip-ssh-key "
 fi
 
-if [ "${TAILSCALE_SSH}" = "false" ]; then
+if [ "${TAILSCALE_SSH}" = "true" ]; then
+    FINAL_COMMAND+=" --enable-tailscale-ssh"
+else
     FINAL_COMMAND+=" --disable-tailscale-ssh"
+fi
+
+if [ "${USE_LEGACY_SSH_KEY}" = "false" ] && [ "${TAILSCALE_SSH}" = "false" ]; then
+    echo "Error: invalid access mode. At least one of legacy SSH key or Tailscale SSH must be enabled."
+    exit 1
 fi
 
 echo -e "\n\n========================================================"
