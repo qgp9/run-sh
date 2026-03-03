@@ -19,7 +19,6 @@ Those belong to Day-1+ configuration (Ansible roles/playbooks).
 - `post-init/post-init.sh`: Day-0 bootstrap script run on the target host.
 - `post-init/generate_bootstrap_command.sh`: Local helper to generate a one-shot bootstrap command.
 - `post-init/.env-example`: Example environment file for the local helper.
-- `DAY0_PLAN.md`: Tracking document for staged improvements.
 
 ## Quick start
 ### 1) Prepare local environment
@@ -32,6 +31,11 @@ cp .env-example .env
 Required local tools:
 - `curl`
 - `jq`
+
+Versioning recommendation:
+- Pin `POST_INIT_SH_URL` to a release tag instead of `main`.
+- Example: `https://cdn.jsdelivr.net/gh/qgp9/run-sh@v0.3.0/post-init/post-init.sh`
+- Roll back by switching to an earlier tag.
 
 ### 2) Generate a bootstrap command
 ```bash
