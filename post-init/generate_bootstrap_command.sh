@@ -30,6 +30,16 @@ parse_auth_mode() {
     fi
 }
 
+parse_positive_int() {
+    local var_name="$1"
+    local var_value="${2:-}"
+
+    if ! [[ "$var_value" =~ ^[0-9]+$ ]] || [ "$var_value" -le 0 ]; then
+        echo "Error: ${var_name} must be a positive integer."
+        exit 1
+    fi
+}
+
 # --- Generate Tailscale Authkey (Ephemeral with ACL tags) ---
 # Call Tailscale API to issue a one-time (or Ephemeral) authkey.
 # "Ephemeral" keys are automatically deleted when the device disconnects.
@@ -38,23 +48,57 @@ parse_auth_mode() {
 #          tag:ssh-inbound-only (SSH access only from specific IPs/ports)
 # Tailscale ACLs: https://tailscale.com/kb/1018/acls/
 # API docs: https://api.tailscale.com/api/v2/tailnet/<tailnetID>/keys
+if [ -z "${TAILSCALE_KEY_EXPIRY_SECONDS:-}" ]; then
+    echo "Error: TAILSCALE_KEY_EXPIRY_SECONDS must be set in .env."
+    exit 1
+fi
+if [ -z "${TAILSCALE_KEY_REUSABLE:-}" ]; then
+    echo "Error: TAILSCALE_KEY_REUSABLE must be set in .env."
+    exit 1
+fi
+if [ -z "${TAILSCALE_KEY_PREAUTHORIZED:-}" ]; then
+    echo "Error: TAILSCALE_KEY_PREAUTHORIZED must be set in .env."
+    exit 1
+fi
+if [ -z "${TAILSCALE_KEY_TAGS:-}" ]; then
+    echo "Error: TAILSCALE_KEY_TAGS must be set in .env."
+    exit 1
+fi
+
+parse_positive_int "TAILSCALE_KEY_EXPIRY_SECONDS" "${TAILSCALE_KEY_EXPIRY_SECONDS}"
+parse_bool "TAILSCALE_KEY_REUSABLE" "${TAILSCALE_KEY_REUSABLE}"
+parse_bool "TAILSCALE_KEY_PREAUTHORIZED" "${TAILSCALE_KEY_PREAUTHORIZED}"
+
+TAILSCALE_KEY_TAGS_JSON=$(printf '%s' "${TAILSCALE_KEY_TAGS}" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length > 0))')
+if [ "$(echo "${TAILSCALE_KEY_TAGS_JSON}" | jq 'length')" -eq 0 ]; then
+    echo "Error: TAILSCALE_KEY_TAGS must contain at least one non-empty tag."
+    exit 1
+fi
+
+TAILSCALE_KEY_REQUEST_PAYLOAD=$(jq -n \
+  --argjson reusable "${TAILSCALE_KEY_REUSABLE}" \
+  --argjson preauthorized "${TAILSCALE_KEY_PREAUTHORIZED}" \
+  --argjson tags "${TAILSCALE_KEY_TAGS_JSON}" \
+  --argjson expiry_seconds "${TAILSCALE_KEY_EXPIRY_SECONDS}" \
+  '{
+    capabilities: {
+      devices: {
+        create: {
+          reusable: $reusable,
+          ephemeral: false,
+          preauthorized: $preauthorized,
+          tags: $tags
+        }
+      }
+    },
+    expirySeconds: $expiry_seconds
+  }')
+
 echo "Generating Tailscale authkey for: $TARGET_HOSTNAME..."
 API_RESPONSE=$(curl -s -X POST "https://api.tailscale.com/api/v2/tailnet/${TAILNET_ID}/keys" \
   -H "Authorization: Bearer ${TAILSCALE_API_TOKEN}" \
   -H "Content-Type: application/json" \
-  --data-raw '{
-    "capabilities": {
-      "devices": {
-        "create": {
-          "reusable": false,
-          "ephemeral": false,
-          "preauthorized": true,
-          "tags": ["tag:unprovisioned-server"]
-        }
-      }
-    },
-    "expirySeconds": 3600
-  }')
+  --data-raw "${TAILSCALE_KEY_REQUEST_PAYLOAD}")
 
 TAILSCALE_AUTH_KEY=$(echo "${API_RESPONSE}" | jq -r '.key')
 
@@ -121,9 +165,10 @@ echo "      COPY AND PASTE THE FOLLOWING COMMAND ON YOUR NEW SERVER"
 echo "========================================================"
 echo "${FINAL_COMMAND}"
 echo "========================================================"
-echo -e "\nNOTE: This Tailscale authkey is ephemeral and/or single-use. "
+echo -e "\nNOTE: This Tailscale auth key is generated with your configured policy."
 echo "After authentication, you should see '${TARGET_HOSTNAME}' in your Tailscale admin console."
 echo "Remember to update your Tailscale ACLs and Ansible inventory for this server."
+echo "Tailscale key policy: expiry=${TAILSCALE_KEY_EXPIRY_SECONDS}s reusable=${TAILSCALE_KEY_REUSABLE} preauthorized=${TAILSCALE_KEY_PREAUTHORIZED} tags=${TAILSCALE_KEY_TAGS}"
 if [ "${TAILSCALE_AUTH_INPUT_MODE}" = "prompt" ]; then
     echo "Prompt mode selected: paste the generated Tailscale auth key when prompted on the target host."
     echo "Generated key: ${TAILSCALE_AUTH_KEY}"

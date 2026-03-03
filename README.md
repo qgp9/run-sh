@@ -17,7 +17,7 @@ Those belong to Day-1+ configuration (Ansible roles/playbooks).
 
 ## Repository layout
 - `post-init/post-init.sh`: Day-0 bootstrap script run on the target host.
-- `post-init/generate_bootstrap_command.sh`: Local helper to generate a one-shot bootstrap command.
+- `post-init/generate_bootstrap_command.sh`: Local key issuer + validated command builder.
 - `post-init/.env-example`: Example environment file for the local helper.
 
 ## Quick start
@@ -41,6 +41,10 @@ Versioning recommendation:
 ```bash
 ./generate_bootstrap_command.sh <target-hostname>
 ```
+
+The generator does two things:
+- Creates a Tailscale auth key via API using policy variables from `.env`
+- Builds a bootstrap command with explicit access-mode flags
 
 This prints a command similar to:
 ```bash
@@ -95,6 +99,13 @@ Optional arguments:
 - If you use `--tailscale "<key>"`, avoid shell history persistence and use short-lived keys.
 - The script grants `NOPASSWD:ALL` to the bootstrap user for operational convenience.
   - Tighten this in Ansible for production environments.
+
+## Tailscale key policy variables
+Set these in `post-init/.env` for `generate_bootstrap_command.sh`:
+- `TAILSCALE_KEY_EXPIRY_SECONDS` (positive integer)
+- `TAILSCALE_KEY_REUSABLE` (`true|false`)
+- `TAILSCALE_KEY_PREAUTHORIZED` (`true|false`)
+- `TAILSCALE_KEY_TAGS` (comma-separated tags, e.g. `tag:unprovisioned-server,tag:ssh-inbound-only`)
 
 ## Day-1 handoff
 After Day-0 finishes and the node appears in tailnet, run your Ansible workflow immediately:
